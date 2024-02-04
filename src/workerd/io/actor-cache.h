@@ -6,6 +6,7 @@
 
 #include <kj/async.h>
 #include <workerd/io/actor-storage.h>
+#include <workerd/io/do-context.h>
 #include <kj/one-of.h>
 #include <kj/map.h>
 #include <kj/list.h>
@@ -260,7 +261,7 @@ public:
       "broken.ignored; jsg.Error: "
       "Durable Object storage is no longer accessible."_kj;
 
-  ActorCache(rpc::ActorStorage::Stage::Client storage, const SharedLru& lru, OutputGate& gate,
+  ActorCache(edgeworker::DOContext ctx, rpc::ActorStorage::Stage::Client storage, const SharedLru& lru, OutputGate& gate,
       Hooks& hooks = Hooks::DEFAULT);
   ~ActorCache() noexcept(false);
 
@@ -726,6 +727,8 @@ private:
   // If the LRU is currently over the soft limit, returns a promise that resolves when it is
   // back under the limit.
   kj::Maybe<kj::Promise<void>> getBackpressure();
+
+  edgeworker::DOContext ctx;
 
   class GetMultiStreamImpl;
   class ForwardListStreamImpl;

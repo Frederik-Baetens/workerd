@@ -3,6 +3,7 @@
 //     https://opensource.org/licenses/Apache-2.0
 
 #include "actor-cache.h"
+#include "workerd/io/do-context.h"
 #include <algorithm>
 
 #include <kj/debug.h>
@@ -25,10 +26,10 @@ static constexpr size_t MAX_ACTOR_STORAGE_RPC_WORDS = (16u << 20) / sizeof(capnp
 
 ActorCache::Hooks ActorCache::Hooks::DEFAULT;
 
-ActorCache::ActorCache(rpc::ActorStorage::Stage::Client storage, const SharedLru& lru,
+ActorCache::ActorCache(edgeworker::DOContext ctx, rpc::ActorStorage::Stage::Client storage, const SharedLru& lru,
                        OutputGate& gate, Hooks& hooks)
-    : storage(kj::mv(storage)), lru(lru), gate(gate), hooks(hooks), clock(kj::systemPreciseMonotonicClock()),
-      currentValues(lru.cleanList.lockExclusive()) {}
+    : storage(kj::mv(storage)), lru(lru), gate(gate), hooks(hooks), clock(kj::systemPreciseMonotonicClock()), currentValues(lru.cleanList.lockExclusive()),
+      ctx(kj::mv(ctx)) {}
 
 ActorCache::~ActorCache() noexcept(false) {
   // Need to remove all entries from any lists they might be in.
@@ -556,8 +557,10 @@ kj::OneOf<ActorCache::GetResultList, kj::Promise<ActorCache::GetResultList>>
 
   rpc::ActorStorage::ListStream::Client streamClient = kj::mv(streamServer);
 
+  auto ctxToSend = this->ctx.toCapnpReader();
+
   auto sendPromise = scheduleStorageRead(
-      [sizeHint,streamClient,&streamServerRef]
+      [sizeHint,streamClient,&streamServerRef, ctxToSend]
       (rpc::ActorStorage::Operations::Client client) mutable -> kj::Promise<void> {
     if (streamServerRef.nextExpectedKey == streamServerRef.keysToFetch.end()) {
       // No more keys expected, must have finished listing on a previous try.
@@ -571,6 +574,8 @@ kj::OneOf<ActorCache::GetResultList, kj::Promise<ActorCache::GetResultList>>
       list.set(i, keysToFetch[i].asBytes());
     }
     req.setStream(streamClient);
+    req.setContext(ctxToSend);
+
     return req.send().ignoreResult();
   });
 
